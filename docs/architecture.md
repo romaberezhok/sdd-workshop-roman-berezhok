@@ -1,6 +1,6 @@
 # Архітектура шарів сторінок і даних
 
-Схема потрібна аналітику, щоб бачити шлях даних від сторінки до MongoDB перед уточненням вимог: які екрани ходять через `app/api/`, які викликають сервіси напряму через `app/di/`, і від яких репозиторіїв і моделей залежить кожен сервіс.
+Схеми потрібні аналітику, щоб бачити шлях даних від сторінки до MongoDB і реальну поведінку форми контактів перед уточненням вимог: які екрани ходять через `app/api/`, які викликають сервіси напряму через `app/di/`, і що саме відбувається після «Надіслати запит» (без вигаданого email чи запису в БД).
 
 Діаграма нижче показує основні маршрути `app/[lang]/`, пов’язані API-ендпоінти, сервіси з `app/services/` та інфраструктуру в `app/infrastructure/` (репозиторії й моделі). Частина сторінок отримує дані через DI-контейнер (`app/di/container.ts`) без HTTP; форми й службові маршрути без сервісного шару також позначені.
 
@@ -136,4 +136,43 @@ flowchart TD
   mediaRepo --> mediaModel
   foundationRepo --> foundationModels
   navigationRepo --> navigationModel
+```
+
+## Послідовність: форма на `/contacts`
+
+На сторінці контактів (`ContactsInfo`) рендериться `OfferCollaborationForm` з `ContactForm`. Успішний сценарій у браузері: клієнтська zod-валідація → `POST /api/collaboration` → серверна `validateContactData` → відповідь 200 у demo-режимі (без `emailService` і без MongoDB) → модалка підтвердження.
+
+```mermaid
+sequenceDiagram
+  actor Visitor as Відвідувач
+  participant Form as ContactForm
+  participant Offer as OfferCollaborationForm
+  participant API as POST /api/collaboration
+  participant Validate as validateContactData
+
+  Visitor->>Form: Заповнює поля і натискає «Надіслати запит»
+  Form->>Form: Zod-валідація (react-hook-form)
+
+  alt Невалідні поля
+    Form-->>Visitor: Помилки біля полів (без запиту)
+  else Валідні дані
+    Form->>Offer: onSubmit({ name, email, phoneNumber?, message, policy })
+    Offer->>API: fetch POST JSON (без policy)
+    API->>Validate: Перевірка name, email, phoneNumber?, message
+
+    alt Серверна валідація не пройшла
+      Validate-->>API: errors
+      API-->>Offer: 400 { success: false, errors }
+      Offer-->>Offer: console.error (у UI помилки немає)
+    else Demo-успіх
+      Validate-->>API: ok
+      API-->>Offer: 200 { success: true, data, message }
+      Note over API: Без emailService і без запису в MongoDB
+    end
+
+    Offer-->>Form: return (успіх або зловлена помилка)
+    Form-->>Visitor: Модалка «Дякую» / «Ваш запит надіслано»
+    Visitor->>Form: «Закрити»
+    Form->>Form: reset() і зняття policy
+  end
 ```
